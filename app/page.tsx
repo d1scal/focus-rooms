@@ -18,15 +18,21 @@ type Participant = {
   username: string
   status: string
   joined_at: string
+  is_online: boolean
 }
 
 export default function Home() {
   const [rooms, setRooms] = useState<Room[]>([])
-  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
+  const [selectedRoom, setSelectedRoom] =
+    useState<Room | null>(null)
 
   const [participants, setParticipants] = useState<
     Participant[]
   >([])
+
+  const [participantId, setParticipantId] = useState<
+    string | null
+  >(null)
 
   const [isInFocus, setIsInFocus] = useState(false)
 
@@ -69,6 +75,7 @@ export default function Home() {
         },
         () => {
           fetchParticipants(selectedRoom.id)
+          fetchRooms()
         }
       )
       .subscribe()
@@ -79,14 +86,40 @@ export default function Home() {
   }, [selectedRoom])
 
   async function fetchRooms() {
-    const { data, error } = await supabase
+    const { data: roomsData, error } = await supabase
       .from('rooms')
       .select('*')
       .order('created_at', { ascending: true })
 
-    if (!error && data) {
-      setRooms(data)
+    if (error || !roomsData) {
+      console.log(error)
+      return
     }
+
+    const updatedRooms = await Promise.all(
+      roomsData.map(async (room) => {
+        const { count, error: countError } =
+          await supabase
+            .from('participants')
+            .select('*', {
+              count: 'exact',
+              head: true,
+            })
+            .eq('room_id', room.id)
+            .eq('is_online', true)
+
+        if (countError) {
+          console.log(countError)
+        }
+
+        return {
+          ...room,
+          online_count: count || 0,
+        }
+      })
+    )
+
+    setRooms(updatedRooms)
   }
 
   async function fetchParticipants(roomId: string) {
@@ -94,55 +127,66 @@ export default function Home() {
       .from('participants')
       .select('*')
       .eq('room_id', roomId)
+      .eq('is_online', true)
 
-    if (!error && data) {
+    if (error) {
+      console.log(error)
+      return
+    }
+
+    if (data) {
       setParticipants(data)
     }
   }
 
   async function handleJoin(room: Room) {
-    const updatedCount = room.online_count + 1
+    console.log('joining room')
 
-    await supabase
-      .from('rooms')
-      .update({
-        online_count: updatedCount,
-      })
-      .eq('id', room.id)
+    const { data, error } = await supabase
+      .from('participants')
+      .insert([
+        {
+          room_id: room.id,
+          username: `User ${Math.floor(
+            Math.random() * 1000
+          )}`,
+          status: 'focusing',
+          is_online: true,
+        },
+      ])
+      .select()
 
-    await supabase.from('participants').insert({
-      room_id: room.id,
-      username: `User ${Math.floor(
-        Math.random() * 1000
-      )}`,
-      status: 'focusing',
-    })
+    console.log(data)
+    console.log(error)
 
-    setSelectedRoom({
-      ...room,
-      online_count: updatedCount,
-    })
+    if (error || !data || data.length === 0) {
+      return
+    }
 
+    setParticipantId(data[0].id)
+
+    await fetchRooms()
+    await fetchParticipants(room.id)
+
+    setSelectedRoom(room)
     setIsInFocus(false)
   }
 
   async function handleLeave() {
-    if (!selectedRoom) return
-
-    const updatedCount = Math.max(
-      0,
-      selectedRoom.online_count - 1
-    )
+    if (!participantId) return
 
     await supabase
-      .from('rooms')
+      .from('participants')
       .update({
-        online_count: updatedCount,
+        is_online: false,
       })
-      .eq('id', selectedRoom.id)
+      .eq('id', participantId)
+
+    await fetchRooms()
 
     setSelectedRoom(null)
     setParticipants([])
+    setParticipantId(null)
     setIsInFocus(false)
   }
 
