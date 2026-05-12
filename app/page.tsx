@@ -1,11 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-
-import RoomCard from '@/components/RoomCard'
 import LobbyScreen from '@/components/LobbyScreen'
-import FocusScreen from '@/components/FocusScreen'
+import RoomScreen from '@/components/RoomScreen'
+
+type Participant = {
+  id: string
+  username: string
+  status: string
+  room_id: string
+}
 
 type Room = {
   id: string
@@ -13,59 +18,46 @@ type Room = {
   online_count: number
 }
 
-type Participant = {
+type FocusSession = {
   id: string
-  username: string
-  status: string
-  joined_at: string
-  is_online: boolean
+  room_id: string
+  mode: 'focus' | 'break'
+  started_at: string
+  duration: number
 }
 
-export default function Home() {
-  const [rooms, setRooms] = useState<Room[]>([])
-  const [selectedRoom, setSelectedRoom] =
-    useState<Room | null>(null)
+export default function HomePage() {
+  const [room, setRoom] = useState<Room | null>(null)
+  const [participants, setParticipants] = useState<Participant[]>([])
+  const [joined, setJoined] = useState(false)
+  const [session, setSession] = useState<FocusSession | null>(null)
 
-  const [participants, setParticipants] = useState<
-    Participant[]
-  >([])
+  const username = useMemo(() => {
+    if (typeof window === 'undefined') return ''
 
-  const [participantId, setParticipantId] = useState<
-    string | null
-  >(null)
+    const existing = localStorage.getItem('focus_username')
 
-  const [isInFocus, setIsInFocus] = useState(false)
+    if (existing) return existing
 
-  useEffect(() => {
-    fetchRooms()
+    const generated = `user-${Math.floor(Math.random() * 9999)}`
 
-    const channel = supabase
-      .channel('rooms-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'rooms',
-        },
-        () => {
-          fetchRooms()
-        }
-      )
-      .subscribe()
+    localStorage.setItem('focus_username', generated)
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return generated
   }, [])
 
   useEffect(() => {
-    if (!selectedRoom) return
+    loadRoom()
+  }, [])
 
-    fetchParticipants(selectedRoom.id)
+  useEffect(() => {
+    if (!room) return
 
-    const channel = supabase
-      .channel(`participants-${selectedRoom.id}`)
+    loadParticipants()
+    loadSession()
+
+    const participantsChannel = supabase
+      .channel('participants-realtime')
       .on(
         'postgres_changes',
         {
@@ -73,171 +65,197 @@ export default function Home() {
           schema: 'public',
           table: 'participants',
         },
-        () => {
-          fetchParticipants(selectedRoom.id)
-          fetchRooms()
+        async () => {
+          await loadParticipants()
+        }
+      )
+      .subscribe()
+
+    const sessionChannel = supabase
+      .channel('session-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'focus_sessions',
+        },
+        async () => {
+          await loadSession()
         }
       )
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(participantsChannel)
+      supabase.removeChannel(sessionChannel)
     }
-  }, [selectedRoom])
+  }, [room])
 
-  async function fetchRooms() {
-    const { data: roomsData, error } = await supabase
+  async function loadRoom() {
+    const { data } = await supabase
       .from('rooms')
       .select('*')
-      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
 
-    if (error || !roomsData) {
-      console.log(error)
-      return
+    if (data) {
+      setRoom(data)
     }
-
-    const updatedRooms = await Promise.all(
-      roomsData.map(async (room) => {
-        const { count, error: countError } =
-          await supabase
-            .from('participants')
-            .select('*', {
-              count: 'exact',
-              head: true,
-            })
-            .eq('room_id', room.id)
-            .eq('is_online', true)
-
-        if (countError) {
-          console.log(countError)
-        }
-
-        return {
-          ...room,
-          online_count: count || 0,
-        }
-      })
-    )
-
-    setRooms(updatedRooms)
   }
 
-  async function fetchParticipants(roomId: string) {
-    const { data, error } = await supabase
-      .from('participants')
-      .select('*')
-      .eq('room_id', roomId)
-      .eq('is_online', true)
+  async function loadSession() {
+    if (!room) return
 
-    if (error) {
-      console.log(error)
+    const { data } = await supabase
+      .from('focus_sessions')
+      .select('*')
+      .eq('room_id', room.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single()
+
+    if (data) {
+      setSession(data)
       return
     }
+
+    const { data: created } = await supabase
+      .from('focus_sessions')
+      .insert({
+        room_id: room.id,
+        mode: 'focus',
+        duration: 1500,
+      })
+      .select()
+      .single()
+
+    if (created) {
+      setSession(created)
+    }
+  }
+
+  async function loadParticipants() {
+    if (!room) return
+
+    const { data } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('room_id', room.id)
 
     if (data) {
       setParticipants(data)
+
+      await supabase
+        .from('rooms')
+        .update({
+          online_count: data.length,
+        })
+        .eq('id', room.id)
+
+      setRoom((prev) =>
+        prev
+          ? {
+              ...prev,
+              online_count: data.length,
+            }
+          : prev
+      )
     }
   }
 
-  async function handleJoin(room: Room) {
-    console.log('joining room')
+  async function joinFocus() {
+    if (!room) return
 
-    const { data, error } = await supabase
+    await supabase.from('participants').insert({
+      username,
+      status: 'Focusing',
+      room_id: room.id,
+    })
+
+    setJoined(true)
+  }
+
+  async function leaveFocus() {
+    await supabase
       .from('participants')
-      .insert([
-        {
-          room_id: room.id,
-          username: `User ${Math.floor(
-            Math.random() * 1000
-          )}`,
-          status: 'focusing',
-          is_online: true,
-        },
-      ])
-      .select()
+      .delete()
+      .eq('username', username)
 
-    console.log(data)
-    console.log(error)
-
-    if (error || !data || data.length === 0) {
-      return
-    }
-
-    setParticipantId(data[0].id)
-
-    await fetchRooms()
-    await fetchParticipants(room.id)
-
-    setSelectedRoom(room)
-    setIsInFocus(false)
+    setJoined(false)
   }
 
-  async function handleLeave() {
-    if (!participantId) return
+  async function switchMode() {
+    if (!room || !session) return
+
+    const nextMode =
+      session.mode === 'focus'
+        ? 'break'
+        : 'focus'
+
+    const nextDuration =
+      nextMode === 'focus'
+        ? 1500
+        : 300
+
+    await supabase
+      .from('focus_sessions')
+      .insert({
+        room_id: room.id,
+        mode: nextMode,
+        duration: nextDuration,
+      })
 
     await supabase
       .from('participants')
       .update({
-        is_online: false,
+        status:
+          nextMode === 'focus'
+            ? 'Focusing'
+            : 'Break',
       })
-      .eq('id', participantId)
-
-    await fetchRooms()
-
-    setSelectedRoom(null)
-    setParticipants([])
-    setParticipantId(null)
-    setIsInFocus(false)
+      .eq('room_id', room.id)
   }
 
-  if (selectedRoom && isInFocus) {
+  useEffect(() => {
+    const cleanup = async () => {
+      await supabase
+        .from('participants')
+        .delete()
+        .eq('username', username)
+    }
+
+    window.addEventListener('beforeunload', cleanup)
+
+    return () => {
+      window.removeEventListener('beforeunload', cleanup)
+    }
+  }, [username])
+
+  if (!room || !session) {
     return (
-      <FocusScreen
-        roomName={selectedRoom.name}
-        participants={participants}
-        onLeave={handleLeave}
-      />
+      <main className="flex min-h-screen items-center justify-center bg-black text-white">
+        Loading...
+      </main>
     )
   }
 
-  if (selectedRoom) {
+  if (joined) {
     return (
-      <LobbyScreen
-        room={selectedRoom}
-        participants={participants}
-        onJoinFocus={() => setIsInFocus(true)}
+      <RoomScreen
+        roomName={room.name}
+        session={session}
+        onLeave={leaveFocus}
+        onSwitchMode={switchMode}
       />
     )
   }
 
   return (
-    <main className="min-h-screen bg-black px-6 py-20 text-white">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-14">
-          <div className="mb-4 inline-flex rounded-full border border-neutral-800 bg-neutral-900 px-4 py-1 text-xs uppercase tracking-[0.25em] text-neutral-400">
-            Live Deep Work Sessions
-          </div>
-
-          <h1 className="text-6xl font-semibold tracking-tight">
-            Focus Rooms
-          </h1>
-
-          <p className="mt-4 text-neutral-500">
-            Join a live focus session and work together in
-            silence.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {rooms.map((room) => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              onJoin={() => handleJoin(room)}
-            />
-          ))}
-        </div>
-      </div>
-    </main>
+    <LobbyScreen
+      room={room}
+      participants={participants}
+      onJoinFocus={joinFocus}
+    />
   )
 }

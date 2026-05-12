@@ -2,6 +2,7 @@ type Participant = {
   id: string
   username: string
   status: string
+  avatar_url?: string
 }
 
 type Props = {
@@ -22,53 +23,75 @@ export default function LobbyScreen({
   onJoinFocus,
 }: Props) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
-      <div className="w-full max-w-md">
-        <h1 className="mb-2 text-5xl font-semibold">
-          {room.name}
-        </h1>
+    <main className="min-h-screen bg-black px-6 py-16 text-white">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-14">
+          <div className="mb-5 inline-flex rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.35em] text-neutral-500">
+            Deep Work Space
+          </div>
 
-        <p className="mb-6 text-neutral-500">
-          {room.online_count} people online
-        </p>
+          <h1 className="text-7xl font-semibold tracking-tight">
+            {room.name}
+          </h1>
 
-        <div className="mb-8 h-2 overflow-hidden rounded-full bg-neutral-800">
-          <div className="h-full w-1/2 rounded-full bg-emerald-400" />
+          <p className="mt-5 text-xl text-neutral-500">
+            {room.online_count} people focusing now
+          </p>
         </div>
 
-        <div className="rounded-3xl border border-neutral-800 bg-gradient-to-b from-[#0d1020] to-black p-5">
-          <div className="grid grid-cols-2 gap-4">
-            {participants.map((participant) => (
-              <div
-                key={participant.id}
-                className="rounded-2xl bg-white/5 p-5 text-center"
-              >
-                <div className="mx-auto mb-3 h-2 w-2 rounded-full bg-emerald-400" />
+        <div className="grid grid-cols-2 gap-5 md:grid-cols-3 xl:grid-cols-4">
+          {participants.map((participant) => (
+            <div
+              key={participant.id}
+              className="group rounded-3xl border border-white/10 bg-white/[0.03] p-6 transition hover:border-white/20 hover:bg-white/[0.05]"
+            >
+              <div className="flex items-center justify-between">
+                <div className="h-3 w-3 rounded-full bg-emerald-400 shadow-[0_0_20px_rgba(74,222,128,0.8)]" />
 
-                <p className="text-lg font-medium">
-                  {participant.username}
+                <p className="text-xs uppercase tracking-[0.25em] text-neutral-600">
+                  Live
                 </p>
+              </div>
 
-                <p className="mt-1 text-sm text-neutral-500">
+              <div className="mt-6 flex flex-col items-center">
+                {participant.avatar_url ? (
+                  <img
+                    src={participant.avatar_url}
+                    alt={participant.username}
+                    className="h-20 w-20 rounded-full border border-white/10 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/10 text-2xl font-semibold">
+                    {participant.username[0]}
+                  </div>
+                )}
+
+                <h2 className="mt-5 text-xl font-medium">
+                  @{participant.username}
+                </h2>
+
+                <p className="mt-2 text-sm text-neutral-500">
                   {participant.status}
                 </p>
               </div>
-            ))}
-          </div>
-
-          <div className="mt-6 flex justify-center">
-            <div className="rounded-full bg-black px-4 py-2 text-sm text-emerald-400">
-              ● Focus session active
             </div>
-          </div>
+          ))}
         </div>
 
-        <button
-          onClick={onJoinFocus}
-          className="mt-6 w-full rounded-2xl bg-white px-6 py-4 text-lg font-medium text-black transition hover:bg-neutral-200"
-        >
-          Join Focus Session
-        </button>
+        {participants.length === 0 && (
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] py-24 text-center text-neutral-500">
+            No one is here yet
+          </div>
+        )}
+
+        <div className="mt-14 flex justify-center">
+          <button
+            onClick={onJoinFocus}
+            className="rounded-2xl bg-white px-10 py-5 text-lg font-medium text-black transition hover:scale-[1.02] hover:bg-neutral-200"
+          >
+            Join Focus Session
+          </button>
+        </div>
       </div>
     </main>
   )
