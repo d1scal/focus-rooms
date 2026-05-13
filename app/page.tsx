@@ -135,6 +135,7 @@ export default function HomePage() {
           room_id: currentRoom.id,
           mode: 'focus',
           duration: 1500,
+          started_at: new Date().toISOString(),
         })
         .select()
         .single()
@@ -228,6 +229,7 @@ export default function HomePage() {
         room_id: room.id,
         mode: nextMode,
         duration: nextDuration,
+        started_at: new Date().toISOString(),
       })
 
     await supabase
