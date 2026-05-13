@@ -30,23 +30,51 @@ export type TelegramUser = {
 
 export function getTelegramUser(): TelegramUser | null {
 
+  if (typeof window === 'undefined') {
+
+    return null
+
+  }
+
   try {
 
     init()
 
-    const tg = (window as any).Telegram?.WebApp
+    const tg = window.Telegram?.WebApp
 
     if (!tg) {
 
-      return null
+      return {
+
+        id: 1,
+
+        first_name: 'Guest',
+
+      }
 
     }
 
-    return tg.initDataUnsafe?.user || null
+    return (
+
+      tg.initDataUnsafe?.user || {
+
+        id: 1,
+
+        first_name: 'Guest',
+
+      }
+
+    )
 
   } catch {
 
-    return null
+    return {
+
+      id: 1,
+
+      first_name: 'Guest',
+
+    }
 
   }
 
