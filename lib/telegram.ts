@@ -1,3 +1,17 @@
+declare global {
+
+  interface Window {
+
+    Telegram?: {
+
+      WebApp?: any
+
+    }
+
+  }
+
+}
+
 'use client'
 
 import { init } from '@telegram-apps/sdk'
