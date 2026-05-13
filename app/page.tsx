@@ -47,15 +47,21 @@ export default function HomePage() {
   }, [])
 
   useEffect(() => {
-    loadRoom()
+    init()
   }, [])
 
-  useEffect(() => {
-    if (!room) return
+  async function init() {
+    const loadedRoom = await loadRoom()
 
-    loadParticipants()
-    loadSession()
+    if (!loadedRoom) return
 
+    await loadParticipants(loadedRoom)
+    await loadSession(loadedRoom)
+
+    subscribeRealtime(loadedRoom)
+  }
+
+  function subscribeRealtime(currentRoom: Room) {
     const participantsChannel = supabase
       .channel('participants-realtime')
       .on(
@@ -66,7 +72,7 @@ export default function HomePage() {
           table: 'participants',
         },
         async () => {
-          await loadParticipants()
+          await loadParticipants(currentRoom)
         }
       )
       .subscribe()
@@ -81,7 +87,7 @@ export default function HomePage() {
           table: 'focus_sessions',
         },
         async () => {
-          await loadSession()
+          await loadSession(currentRoom)
         }
       )
       .subscribe()
@@ -90,58 +96,72 @@ export default function HomePage() {
       supabase.removeChannel(participantsChannel)
       supabase.removeChannel(sessionChannel)
     }
-  }, [room])
+  }
 
-  async function loadRoom() {
-    const { data } = await supabase
+  async function loadRoom(): Promise<Room | null> {
+    const { data, error } = await supabase
       .from('rooms')
       .select('*')
       .limit(1)
       .single()
 
+    if (error) {
+      console.error(error)
+      return null
+    }
+
     if (data) {
       setRoom(data)
+      return data
     }
+
+    return null
   }
 
-  async function loadSession() {
-    if (!room) return
-
-    const { data } = await supabase
+  async function loadSession(currentRoom: Room) {
+    const { data, error } = await supabase
       .from('focus_sessions')
       .select('*')
-      .eq('room_id', room.id)
+      .eq('room_id', currentRoom.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
 
-    if (data) {
+    if (!error && data) {
       setSession(data)
       return
     }
 
-    const { data: created } = await supabase
+    const { data: created, error: createError } = await supabase
       .from('focus_sessions')
       .insert({
-        room_id: room.id,
+        room_id: currentRoom.id,
         mode: 'focus',
         duration: 1500,
       })
       .select()
       .single()
 
+    if (createError) {
+      console.error(createError)
+      return
+    }
+
     if (created) {
       setSession(created)
     }
   }
 
-  async function loadParticipants() {
-    if (!room) return
-
-    const { data } = await supabase
+  async function loadParticipants(currentRoom: Room) {
+    const { data, error } = await supabase
       .from('participants')
       .select('*')
-      .eq('room_id', room.id)
+      .eq('room_id', currentRoom.id)
+
+    if (error) {
+      console.error(error)
+      return
+    }
 
     if (data) {
       setParticipants(data)
@@ -151,7 +171,7 @@ export default function HomePage() {
         .update({
           online_count: data.length,
         })
-        .eq('id', room.id)
+        .eq('id', currentRoom.id)
 
       setRoom((prev) =>
         prev
